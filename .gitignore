@@ -1,0 +1,12 @@
+__pycache__/
+**/__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.env
+.DS_Store
+**/.DS_Store
+.playwright-mcp/
