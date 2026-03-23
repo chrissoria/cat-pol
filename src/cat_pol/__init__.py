@@ -6,11 +6,18 @@ from .__about__ import __version__
 from .classify import classify
 from .extract import extract
 from .explore import explore
+from .prompt_tune import prompt_tune
 from .summarize import summarize
+from ._source_registry import list_sources, fetch_source
+from . import sources
 
 __all__ = [
     "classify",
     "extract",
     "explore",
+    "fetch_source",
+    "list_sources",
+    "prompt_tune",
+    "sources",
     "summarize",
 ]

@@ -30,6 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 pdf = ["cat-stack[pdf]"]
 embeddings = ["cat-stack[embeddings]"]
+sources = ["datasets>=2.14.0", "huggingface_hub>=0.16.0"]
 
 [project.urls]
 Documentation = "https://github.com/chrissoria/cat-pol#readme"

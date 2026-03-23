@@ -10,3 +10,10 @@ build/
 .DS_Store
 **/.DS_Store
 .playwright-mcp/
+
+# Scraper state & data
+scripts/checkpoints/
+scripts/logs/
+scripts/.last_scrape
+scripts/.dataset_cache.parquet
+scripts/.*_cache.parquet
