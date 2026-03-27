@@ -141,7 +141,70 @@ All datasets are public on HuggingFace — no authentication required.
 |--------|------|-------|------|
 | `social_trump_truth` | 32,000+ | Truth Social posts | [chrissoria/trump-truth-social](https://huggingface.co/datasets/chrissoria/trump-truth-social) |
 
-All sources are updated weekly (Sundays at 9 AM) via automated scrapers.
+All sources are updated weekly (Sundays at 9 AM) via automated scrapers. Truth Social is updated **daily** at 9 AM.
+
+### Trump Truth Social Dataset Columns
+
+The `social_trump_truth` dataset is enriched with metadata, market data, and image descriptions:
+
+**Post metadata:**
+
+| Column | Description |
+|--------|-------------|
+| `date` | Post date (YYYY-MM-DD) |
+| `time` | Post time in UTC (HH:MM:SS) |
+| `day_of_week` | Day name (Monday, Tuesday, etc.) |
+| `datetime` | Full ISO timestamp |
+| `text` | Post text content |
+| `url` | Truth Social post URL |
+| `post_id` | Unique post identifier |
+| `is_president` | Whether Trump was president at time of post |
+| `is_president_elect` | Whether Trump was president-elect at time of post |
+| `replies_count` | Number of replies |
+| `reblogs_count` | Number of reblogs |
+| `favourites_count` | Number of favourites |
+| `media_urls` | Image/video URLs attached to the post |
+| `has_media` | Whether the post has media attachments |
+| `image_alt_text` | AI-generated factual image description (alt-text format) |
+
+**Market data (18 tickers):**
+
+Each ticker has 7 columns following the convention `{ticker}_{metric}`:
+
+| Metric | Description |
+|--------|-------------|
+| `{ticker}_open` | Daily open price |
+| `{ticker}_close` | Daily close price |
+| `{ticker}_1hr_before` | Price 1 hour before the post |
+| `{ticker}_5min_before` | Price 5 minutes before the post |
+| `{ticker}_at_post` | Price at time of post |
+| `{ticker}_5min_after` | Price 5 minutes after the post |
+| `{ticker}_1hr_after` | Price 1 hour after the post |
+
+Tickers included:
+
+| Ticker | Name | Category |
+|--------|------|----------|
+| `sp500` | S&P 500 (^GSPC) | Broad market |
+| `dia` | SPDR Dow Jones Industrial Average ETF | Broad market |
+| `qqq` | Invesco QQQ (Nasdaq-100) | Tech/growth |
+| `djt` | Trump Media & Technology Group | Trump-linked |
+| `lmt` | Lockheed Martin | Defense |
+| `war` | Themes US Military Academy ETF | Defense |
+| `xli` | Industrial Select Sector SPDR | Industrials |
+| `xlv` | Health Care Select Sector SPDR | Healthcare |
+| `xph` | SPDR S&P Pharmaceuticals ETF | Pharma |
+| `cnrg` | SPDR S&P Kensho Clean Power ETF | Clean energy |
+| `gld` | SPDR Gold Shares | Gold/commodities |
+| `uso` | United States Oil Fund | Oil/energy |
+| `fxi` | iShares China Large-Cap ETF | China/trade |
+| `eww` | iShares MSCI Mexico ETF | Mexico/trade |
+| `vgk` | Vanguard FTSE Europe ETF | Europe |
+| `ibit` | iShares Bitcoin ETF | Crypto |
+| `tlt` | iShares 20+ Year Treasury Bond ETF | Bonds/rates |
+| `uup` | Invesco DB US Dollar Index | USD strength |
+
+Intraday prices use the highest available resolution: 1-minute (last ~7 days), 5-minute (last ~60 days), or hourly (last ~2 years). Weekend/holiday posts use the most recent trading day's values. The `sp500_resolution` column indicates the data resolution used.
 
 ## API
 
@@ -151,7 +214,7 @@ All sources are updated weekly (Sundays at 9 AM) via automated scrapers.
 | `prompt_tune()` | Optimize classification prompts via user feedback |
 | `extract()` | Discover and normalize categories from text |
 | `explore()` | Raw category extraction (no deduplication) |
-| `summarize()` | Summarize text with format options (paragraph, bullets, one-liner, structured, report) |
+| `summarize()` | Summarize text, PDFs, or image URLs with format options (paragraph, bullets, one-liner, structured, report, alt-text) |
 | `list_sources()` | List available data sources |
 | `fetch_source()` | Fetch raw data from a source |
 

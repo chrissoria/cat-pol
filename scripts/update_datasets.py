@@ -18,6 +18,7 @@ Usage:
     python scripts/update_datasets.py                  # Update all
     python scripts/update_datasets.py --city sd         # San Diego only
     python scripts/update_datasets.py --city fed        # Federal only
+    python scripts/update_datasets.py --exclude ts      # All except Truth Social
     python scripts/update_datasets.py --dry-run         # Scrape but don't push
 
 Setup:
@@ -1315,6 +1316,40 @@ TS_REPO = os.getenv("TS_DATASET_REPO", "chrissoria/trump-truth-social")
 TS_CACHE = SCRIPTS_DIR / ".ts_cache.parquet"
 TS_ARCHIVE_URL = "https://ix.cnn.io/data/truth-social/truth_archive.json"
 
+# Trump presidential terms (inauguration dates)
+_TRUMP_TERMS = [
+    ("2017-01-20", "2021-01-20"),
+    ("2025-01-20", None),  # current term, no end date
+]
+
+# Trump president-elect periods (election day to day before inauguration)
+_TRUMP_ELECT_TERMS = [
+    ("2016-11-08", "2017-01-20"),
+    ("2024-11-05", "2025-01-20"),
+]
+
+
+def _is_president(date_str: str) -> bool:
+    """Return True if the given date falls within a Trump presidential term."""
+    if not date_str or len(date_str) < 10:
+        return False
+    d = date_str[:10]
+    for start, end in _TRUMP_TERMS:
+        if d >= start and (end is None or d < end):
+            return True
+    return False
+
+
+def _is_president_elect(date_str: str) -> bool:
+    """Return True if the given date falls within a Trump president-elect period."""
+    if not date_str or len(date_str) < 10:
+        return False
+    d = date_str[:10]
+    for start, end in _TRUMP_ELECT_TERMS:
+        if d >= start and d < end:
+            return True
+    return False
+
 
 def update_trump_truths(log: logging.Logger, dry_run: bool = False) -> int:
     """Incremental update for Trump Truth Social posts."""
@@ -1367,7 +1402,11 @@ def update_trump_truths(log: logging.Logger, dry_run: bool = False) -> int:
 
         content_html = post.get("content", "")
         media = post.get("media", [])
-        media_urls = [m.get("url", "") for m in media if isinstance(m, dict)]
+        media_urls = [
+            m.get("url", "") if isinstance(m, dict) else str(m)
+            for m in media
+            if m
+        ]
         created = post.get("created_at", "")
 
         # Extract links
@@ -1392,21 +1431,24 @@ def update_trump_truths(log: logging.Logger, dry_run: bool = False) -> int:
             "media_urls": "; ".join(media_urls) if media_urls else "",
             "links": "; ".join(links) if links else "",
             "has_media": len(media_urls) > 0,
+            "is_president": _is_president(created),
+            "is_president_elect": _is_president_elect(created),
+            "day_of_week": pd.Timestamp(created).day_name() if created else "",
+            "time": created[11:19] if created and len(created) >= 19 else "",
         })
 
-    if not new_rows:
-        log.info(f"{tag} No new posts. Up to date.")
-        return 0
-
-    new_df = pd.DataFrame(new_rows)
+    new_df = pd.DataFrame(new_rows) if new_rows else pd.DataFrame()
     log.info(f"{tag} Found {len(new_df)} new posts")
 
     if dry_run:
-        for _, r in new_df.head(10).iterrows():
-            log.info(f"  {r['date']} | {r['text'][:60]}")
+        if not new_df.empty:
+            for _, r in new_df.head(10).iterrows():
+                log.info(f"  {r['date']} | {r['text'][:60]}")
+        else:
+            log.info(f"{tag} No new posts. Up to date.")
         return 0
 
-    # Also update engagement counts for existing posts
+    # Update engagement counts and media URLs for existing posts
     if not existing_df.empty:
         archive_map = {str(p["id"]): p for p in data}
         for idx, row in existing_df.iterrows():
@@ -1416,10 +1458,337 @@ def update_trump_truths(log: logging.Logger, dry_run: bool = False) -> int:
                 existing_df.at[idx, "replies_count"] = p.get("replies_count", 0)
                 existing_df.at[idx, "reblogs_count"] = p.get("reblogs_count", 0)
                 existing_df.at[idx, "favourites_count"] = p.get("favourites_count", 0)
+                media = p.get("media", [])
+                urls = [
+                    m.get("url", "") if isinstance(m, dict) else str(m)
+                    for m in media if m
+                ]
+                existing_df.at[idx, "media_urls"] = "; ".join(urls) if urls else ""
+                existing_df.at[idx, "has_media"] = len(urls) > 0
 
-    updated = pd.concat([new_df, existing_df], ignore_index=True)
+    updated = pd.concat([new_df, existing_df], ignore_index=True) if not new_df.empty else existing_df.copy()
     updated = updated.drop_duplicates(subset=["post_id"], keep="first")
     updated = updated.sort_values("datetime", ascending=False).reset_index(drop=True)
+
+    # Recompute status columns for all rows (handles backfill)
+    updated["is_president"] = updated["date"].apply(_is_president)
+    updated["is_president_elect"] = updated["date"].apply(_is_president_elect)
+    updated["day_of_week"] = pd.to_datetime(updated["date"], errors="coerce").dt.day_name()
+    updated["time"] = pd.to_datetime(updated["datetime"], errors="coerce").dt.strftime("%H:%M:%S").fillna("")
+
+    # Merge stock/ETF prices (daily + intraday)
+    _TS_TICKERS = {
+        "^GSPC": "sp500", "DIA": "dia", "QQQ": "qqq", "DJT": "djt",
+        "LMT": "lmt", "WAR": "war", "CNRG": "cnrg", "XLV": "xlv",
+        "XPH": "xph", "GLD": "gld", "USO": "uso", "XLI": "xli",
+        "EWW": "eww", "VGK": "vgk", "IBIT": "ibit", "FXI": "fxi",
+        "TLT": "tlt", "UUP": "uup",
+    }
+    try:
+        import yfinance as yf
+        import numpy as np
+
+        post_dt = pd.to_datetime(updated["datetime"], utc=True, errors="coerce")
+        min_date = updated["date"].min()
+        all_dates = pd.date_range(min_date, pd.Timestamp.now()).strftime("%Y-%m-%d")
+
+        for yf_ticker, col_prefix in _TS_TICKERS.items():
+            try:
+                # Daily open/close
+                daily = yf.download(yf_ticker, start=min_date, end=pd.Timestamp.now().strftime("%Y-%m-%d"), progress=False)
+                if not daily.empty:
+                    daily = daily.droplevel("Ticker", axis=1) if isinstance(daily.columns, pd.MultiIndex) else daily
+                    if isinstance(daily.columns, pd.MultiIndex):
+                        daily.columns = [c[0] if isinstance(c, tuple) else c for c in daily.columns]
+                    daily.columns.name = None  # clear 'Price' name that breaks rename
+                    daily.index = daily.index.strftime("%Y-%m-%d")
+                    daily_full = daily[["Open", "Close"]].reindex(all_dates).ffill()
+                    updated[f"{col_prefix}_open"] = updated["date"].map(daily_full["Open"]).round(2)
+                    updated[f"{col_prefix}_close"] = updated["date"].map(daily_full["Close"]).round(2)
+
+                # Intraday: build from 1m + 5m + 1h, cache locally
+                intraday_cache = CHECKPOINT_DIR / f"{col_prefix}_intraday.parquet"
+                frames = []
+                for interval, period in [("1m", "7d"), ("5m", "60d"), ("1h", "730d")]:
+                    data = yf.download(yf_ticker, period=period, interval=interval, progress=False)
+                    if not data.empty:
+                        data = data.droplevel("Ticker", axis=1) if isinstance(data.columns, pd.MultiIndex) else data
+                        # Flatten any remaining MultiIndex columns
+                        if isinstance(data.columns, pd.MultiIndex):
+                            data.columns = [c[0] if isinstance(c, tuple) else c for c in data.columns]
+                        data.columns.name = None  # clear 'Price' name
+                        if "Close" in data.columns:
+                            frames.append(data[["Close"]].rename(columns={"Close": "price"}))
+
+                if frames:
+                    intraday = pd.concat(frames).sort_index()
+                    intraday = intraday[~intraday.index.duplicated(keep="first")]
+
+                    # Merge with any existing cache
+                    if intraday_cache.exists():
+                        old = pd.read_parquet(intraday_cache)
+                        if "price" in old.columns:
+                            intraday = pd.concat([old[["price"]], intraday]).sort_index()
+                        else:
+                            intraday = pd.concat([old, intraday]).sort_index()
+                        intraday = intraday[~intraday.index.duplicated(keep="last")]
+
+                    intraday.to_parquet(intraday_cache)
+
+                    sp_sorted = intraday.reset_index()
+                    sp_sorted.columns = ["sp_dt", "price"]
+                    # Unify datetime resolution to avoid merge_asof dtype mismatch
+                    sp_sorted["sp_dt"] = pd.to_datetime(sp_sorted["sp_dt"], utc=True)
+
+                    for offset_min, suffix, direction in [
+                        (-60, "1hr_before", "backward"), (-5, "5min_before", "backward"),
+                        (0, "at_post", "backward"), (5, "5min_after", "forward"),
+                        (60, "1hr_after", "forward"),
+                    ]:
+                        col_name = f"{col_prefix}_{suffix}"
+                        offset_dt = post_dt + pd.Timedelta(minutes=offset_min)
+                        posts = pd.DataFrame({
+                            "post_dt": pd.to_datetime(offset_dt, utc=True),
+                            "orig_idx": updated.index,
+                        }).dropna().sort_values("post_dt")
+                        merged = pd.merge_asof(posts, sp_sorted, left_on="post_dt", right_on="sp_dt", direction=direction)
+                        updated[col_name] = np.nan
+                        updated.loc[merged["orig_idx"].values, col_name] = merged["price"].round(2).values
+
+                log.info(f"{tag} Merged {yf_ticker} ({col_prefix}) data")
+            except Exception as e:
+                log.warning(f"{tag} Could not merge {yf_ticker}: {e}")
+    except ImportError:
+        log.warning(f"{tag} yfinance not installed, skipping stock data")
+
+    # Merge GDELT geopolitical event data
+    try:
+        import time as _time
+        import zipfile
+        import io
+
+        gdelt_cache = CHECKPOINT_DIR / "gdelt_daily.parquet"
+        gdelt_existing = pd.read_parquet(gdelt_cache) if gdelt_cache.exists() else pd.DataFrame()
+
+        # Determine which dates we need
+        all_post_dates = set(updated["date"].unique())
+        existing_dates = set(gdelt_existing["date"].tolist()) if not gdelt_existing.empty else set()
+        missing_dates = sorted(all_post_dates - existing_dates)
+
+        # Only fetch recent missing dates (GDELT raw files cover individual 15-min windows)
+        # Use the daily export file list for efficiency
+        if missing_dates:
+            log.info(f"{tag} Fetching GDELT data for {len(missing_dates)} missing dates...")
+            new_gdelt_rows = []
+            for date_str in missing_dates[-30:]:  # limit to last 30 missing dates per run
+                ymd = date_str.replace("-", "")
+                # GDELT daily export URL
+                export_url = f"http://data.gdeltproject.org/events/{ymd}.export.CSV.zip"
+                try:
+                    _time.sleep(1)
+                    resp = requests.get(export_url, timeout=60)
+                    if resp.status_code != 200:
+                        continue
+                    z = zipfile.ZipFile(io.BytesIO(resp.content))
+                    fname = z.namelist()[0]
+                    events = pd.read_csv(z.open(fname), sep="\t", header=None, low_memory=False)
+                    # Filter US-involved events
+                    us = events[(events[7] == "USA") | (events[17] == "USA")]
+                    if us.empty:
+                        continue
+                    row = {
+                        "date": date_str,
+                        "gdelt_military": int(us[us[28].isin(["18", "19", "20"])].shape[0]),
+                        "gdelt_sanctions": int(us[us[28] == "17"].shape[0]),
+                        "gdelt_threat": int(us[us[28] == "13"].shape[0]),
+                        "gdelt_protest": int(us[us[28] == "14"].shape[0]),
+                        "gdelt_force_posture": int(us[us[28] == "15"].shape[0]),
+                        "gdelt_diplomatic": int(us[us[28].isin(["01","02","03","04","05","06","07","08"])].shape[0]),
+                        "gdelt_material_conflict": int(us[us[29] == 4].shape[0]),
+                        "gdelt_verbal_conflict": int(us[us[29] == 3].shape[0]),
+                        "gdelt_material_cooperation": int(us[us[29] == 2].shape[0]),
+                        "gdelt_verbal_cooperation": int(us[us[29] == 1].shape[0]),
+                        "gdelt_goldstein_avg": round(us[30].mean(), 2) if us[30].notna().any() else 0,
+                        "gdelt_avg_tone": round(us[34].mean(), 2) if us[34].notna().any() else 0,
+                        "gdelt_total_events": int(len(us)),
+                    }
+                    new_gdelt_rows.append(row)
+                    log.info(f"{tag} GDELT {date_str}: {row['gdelt_total_events']} events")
+                except Exception as e:
+                    log.warning(f"{tag} GDELT fetch failed for {date_str}: {e}")
+
+            if new_gdelt_rows:
+                new_gdelt = pd.DataFrame(new_gdelt_rows)
+                gdelt_existing = pd.concat([gdelt_existing, new_gdelt], ignore_index=True)
+                gdelt_existing = gdelt_existing.drop_duplicates(subset=["date"], keep="last")
+                gdelt_existing = gdelt_existing.sort_values("date").reset_index(drop=True)
+
+        # Compute derived columns on full history
+        if not gdelt_existing.empty:
+            import numpy as np
+            gd = gdelt_existing.sort_values("date").copy()
+            # Percentages
+            for col in ["gdelt_military", "gdelt_sanctions", "gdelt_threat", "gdelt_protest", "gdelt_force_posture", "gdelt_diplomatic"]:
+                gd[col + "_pct"] = (gd[col] / gd["gdelt_total_events"] * 100).round(2)
+            # Z-scores
+            for col in ["gdelt_military", "gdelt_sanctions", "gdelt_threat", "gdelt_protest", "gdelt_material_conflict"]:
+                mean, std = gd[col].mean(), gd[col].std()
+                gd[col + "_zscore"] = ((gd[col] - mean) / std).round(2) if std > 0 else 0
+            # Day-over-day deltas
+            for col in ["gdelt_military", "gdelt_sanctions", "gdelt_threat", "gdelt_protest", "gdelt_material_conflict", "gdelt_goldstein_avg", "gdelt_avg_tone"]:
+                gd[col + "_delta"] = gd[col].diff().round(2)
+
+            gd.to_parquet(gdelt_cache, index=False)
+
+            # Merge into dataset
+            gd_indexed = gd.set_index("date")
+            gdelt_cols = [c for c in gd.columns if c != "date"]
+            for col in gdelt_cols:
+                updated[col] = updated["date"].map(gd_indexed[col])
+            log.info(f"{tag} Merged {len(gdelt_cols)} GDELT columns")
+    except Exception as e:
+        log.warning(f"{tag} Could not merge GDELT data: {e}")
+
+    # Summarize new images with alt-text
+    try:
+        import cat_pol as pol
+        hf_key = os.getenv("HUGGINGFACE_API_KEY")
+        if hf_key:
+            needs_summary = updated[
+                (updated["media_urls"].str.len() > 0) &
+                (~updated["media_urls"].str.lower().str.endswith(".mp4")) &
+                (updated.get("image_alt_text", pd.Series([""] * len(updated))).fillna("").str.len() == 0) &
+                (pd.to_datetime(updated["datetime"], errors="coerce") >= "2024-11-05")
+            ]
+            if len(needs_summary) > 0:
+                log.info(f"{tag} Summarizing {len(needs_summary)} new images...")
+                for batch_start in range(0, len(needs_summary), 25):
+                    batch = needs_summary.iloc[batch_start:batch_start + 25]
+                    # For multi-image posts, pick first non-video URL
+                    def _pick_image(media_str):
+                        for u in str(media_str).split(";"):
+                            u = u.strip()
+                            if u and not u.lower().endswith(".mp4"):
+                                return u
+                        return str(media_str).split(";")[0].strip()
+                    batch_urls = [_pick_image(u) for u in batch["media_urls"].tolist()]
+                    try:
+                        result = pol.summarize(
+                            input_data=batch_urls,
+                            format="alt-text",
+                            tone=None,
+                            user_model="qwen/qwen2.5-vl-72b-instruct:novita",
+                            model_source="huggingface",
+                            api_key=hf_key,
+                            description="Images posted by Donald Trump on Truth Social",
+                            thinking_budget=0,
+                        )
+                        for i, (orig_idx, _) in enumerate(batch.iterrows()):
+                            if i < len(result) and result.iloc[i].get("processing_status") == "success":
+                                updated.at[orig_idx, "image_alt_text"] = result.iloc[i].get("summary", "")
+                        log.info(f"{tag} Image batch {batch_start // 25 + 1}: done")
+                    except Exception as e:
+                        log.warning(f"{tag} Image batch failed: {e}")
+            else:
+                log.info(f"{tag} No new images to summarize")
+    except Exception as e:
+        log.warning(f"{tag} Could not summarize images: {e}")
+
+    # Classify new text posts with 5-model ensemble
+    _CAT_COLS = [
+        "cat_attacking_individual", "cat_attacking_opposition", "cat_threatening_intl",
+        "cat_enacting_aggressive", "cat_enacting_nonaggressive", "cat_deescalating",
+        "cat_praising_endorsing", "cat_self_promotion", "cat_other",
+    ]
+    _CAT_NAMES = [
+        "Attacking individual — targeting a specific person by name",
+        "Attacking political opposition — targeting Democrats, a party, or political group broadly",
+        "Threatening/escalating internationally — conditional threats, tariff warnings, military posturing",
+        "Enacting aggressive policy — imposing tariffs, sanctions, bans, military action (already done)",
+        "Enacting non-aggressive policy — signing bills, executive orders, domestic programs, appointments",
+        "De-escalating conflict — toning down, announcing deals, peace talks, ceasefire",
+        "Praising/endorsing — positive statements about a person, leader, ally",
+        "Self-promotion — boasting about achievements, economy, polls, ratings",
+        "Other — does not fit any above category",
+    ]
+    _CAT_SYSTEM_PROMPT = (
+        'Classification guidance per category:\n\n'
+        '- Attacking individual — targeting a specific person by name: Assign "Attacking individual" when a text explicitly criticizes or attacks a specific person by name, and not when it simply mentions or praises them, or shares a link discussing them without commentary. Do not assign this category to texts that broadly target a party, group, or ideology unless they specifically name and attack an individual.\n'
+        '- Attacking political opposition: Assign this category when a text explicitly criticizes or attacks Democrats, a party, or a political group broadly, and not just a specific individual. Do not assign this category when a text is just sharing a link or when the criticism is directed at a specific person rather than a broader group or party.\n'
+        '- Enacting aggressive policy: Assign when the text explicitly describes or reports a specific aggressive action that has been taken, such as imposing tariffs, enforcing sanctions, implementing bans, or conducting military operations. Do not assign to URLs or links alone.\n'
+        '- Enacting non-aggressive policy: Assign when the text explicitly mentions the implementation of a domestic policy, program, or appointment through actions like signing bills or executive orders, and does not involve aggressive actions.\n'
+        '- Praising/endorsing: Assign when a text contains explicit positive statements or endorsements about a specific person, leader, or ally. Do not assign when a text merely reports on someone\'s actions or shares a link without expressing clear positive sentiment.\n'
+        '- URL/link only: Do not assign — filter these to Other instead.\n'
+    )
+    try:
+        import cat_pol as pol
+        hf_key = os.getenv("HUGGINGFACE_API_KEY")
+        openai_key = os.getenv("OPENAI_API_KEY")
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        google_key = os.getenv("GOOGLE_API_KEY")
+
+        if hf_key and openai_key and anthropic_key and google_key:
+            # Ensure cat columns exist
+            for col in _CAT_COLS:
+                if col not in updated.columns:
+                    updated[col] = pd.NA
+
+            # Find unclassified text posts (since election only)
+            needs_classify = updated[
+                (updated["text"].fillna("").str.strip().str.len() > 20) &
+                (updated["cat_other"].isna()) &
+                (pd.to_datetime(updated["datetime"], errors="coerce") >= "2024-11-05")
+            ]
+            if len(needs_classify) > 0:
+                log.info(f"{tag} Classifying {len(needs_classify)} new text posts (5-model ensemble)...")
+                try:
+                    result = pol.classify(
+                        input_data=needs_classify["text"].tolist(),
+                        categories=_CAT_NAMES,
+                        document_context="Trump Truth Social posts",
+                        system_prompt=_CAT_SYSTEM_PROMPT,
+                        models=[
+                            ("meta-llama/llama-4-maverick-17b-128e-instruct-fp8:novita", "huggingface", hf_key, {"creativity": 0}),
+                            ("qwen/qwen3-32b-fp8:novita", "huggingface", hf_key, {"creativity": 0}),
+                            ("claude-3-haiku-20240307", "anthropic", anthropic_key, {"creativity": 0}),
+                            ("gpt-4o-mini", "openai", openai_key, {"creativity": 0}),
+                            ("gemini-2.0-flash", "google", google_key, {"creativity": 0}),
+                        ],
+                        add_other=False,
+                        check_verbosity=False,
+                        safety=True,
+                        thinking_budget=0,
+                    )
+                    # Map consensus columns back
+                    consensus_cols = [c for c in result.columns if "consensus" in c]
+                    for i, (orig_idx, _) in enumerate(needs_classify.iterrows()):
+                        if i < len(result):
+                            for cat_col, cons_col in zip(_CAT_COLS, consensus_cols):
+                                updated.at[orig_idx, cat_col] = result.iloc[i].get(cons_col, 0)
+                    classified = result["processing_status"].eq("success").sum()
+                    log.info(f"{tag} Classified {classified}/{len(needs_classify)} posts")
+                except Exception as e:
+                    log.warning(f"{tag} Classification failed: {e}")
+            else:
+                log.info(f"{tag} No new posts to classify")
+        else:
+            log.warning(f"{tag} Missing API keys for classification (need HF, OpenAI, Anthropic, Google)")
+    except Exception as e:
+        log.warning(f"{tag} Could not classify posts: {e}")
+
+    # Reorder columns: date/time first, then content, then metadata
+    col_order = [
+        "date", "time", "day_of_week", "datetime",
+        "text", "content_html", "url", "post_id",
+        "is_president", "is_president_elect",
+        "replies_count", "reblogs_count", "favourites_count",
+        "media_urls", "links", "has_media", "image_alt_text",
+    ]
+    # Include any extra columns not in the list
+    col_order += [c for c in updated.columns if c not in col_order]
+    # Only keep columns that exist
+    col_order = [c for c in col_order if c in updated.columns]
+    updated = updated[col_order]
 
     push_hf_dataset(updated, TS_REPO, TS_CACHE, log)
     log.info(f"{tag} Done. {len(updated)} total posts (+{len(new_df)} new)")
@@ -1555,6 +1924,132 @@ def update_la(log: logging.Logger, dry_run: bool = False) -> int:
 
 
 # ===========================================================================
+# San Diego County (Legistar — title-based filtering)
+# ===========================================================================
+
+SDCO_REPO = os.getenv("SDCO_DATASET_REPO", "chrissoria/sd-county-ordinances")
+SDCO_CACHE = SCRIPTS_DIR / ".sdco_cache.parquet"
+
+
+def update_sd_county(log: logging.Logger, dry_run: bool = False) -> int:
+    """Incremental update for SD County ordinances/resolutions."""
+    tag = "[SD County]"
+    log.info("=" * 50)
+    log.info(f"{tag} Starting update ({'DRY RUN' if dry_run else 'LIVE'})")
+
+    existing_df = load_hf_dataset(SDCO_REPO, SDCO_CACHE, log)
+    if existing_df.empty:
+        fallback = CHECKPOINT_DIR / "sdcounty" / "sdcounty_final_dataset.parquet"
+        if fallback.exists():
+            existing_df = pd.read_parquet(fallback)
+            log.info(f"{tag} Loaded {len(existing_df)} rows from checkpoint")
+        else:
+            log.error(f"{tag} No existing dataset. Run build_sdcounty_dataset.py first.")
+            return 1
+
+    existing_ids = set(existing_df["matter_id"].astype(str).tolist())
+    log.info(f"{tag} Existing: {len(existing_df)} rows")
+
+    session = requests.Session()
+    new_rows = []
+
+    for keyword, doc_type in [("ORDINANCE", "ordinance"), ("RESOLUTION", "resolution")]:
+        log.info(f"{tag} Fetching recent {doc_type}s...")
+        try:
+            resp = requests.get(
+                "https://webapi.legistar.com/v1/sdcounty/matters",
+                params={
+                    "$filter": f"substringof('{keyword}',MatterTitle)",
+                    "$top": 200,
+                    "$orderby": "MatterIntroDate desc",
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            matters = resp.json()
+        except Exception as e:
+            log.error(f"{tag} API fetch failed for {doc_type}: {e}")
+            continue
+
+        type_new = []
+        for matter in matters:
+            mid = str(matter["MatterId"])
+            if mid in existing_ids:
+                continue
+
+            intro_date = matter.get("MatterIntroDate", "") or ""
+            date = intro_date[:10] if intro_date else ""
+            try:
+                year = int(date[:4]) if date else 0
+            except ValueError:
+                year = 0
+
+            # Get attachment
+            att_url = ""
+            try:
+                att_resp = requests.get(
+                    f"https://webapi.legistar.com/v1/sdcounty/matters/{matter['MatterId']}/attachments",
+                    timeout=15,
+                )
+                atts = att_resp.json()
+                for a in atts:
+                    url = a.get("MatterAttachmentHyperlink", "")
+                    if url.endswith(".pdf") or url.endswith(".docx"):
+                        att_url = url
+                        break
+                if not att_url:
+                    for a in atts:
+                        url = a.get("MatterAttachmentHyperlink", "")
+                        if url:
+                            att_url = url
+                            break
+            except Exception:
+                pass
+            _jittered_sleep(0.3)
+
+            text = ""
+            if att_url:
+                text = extract_pdf_text(att_url, session)
+                _jittered_sleep(0.5)
+
+            type_new.append({
+                "date": date,
+                "matter_id": mid,
+                "matter_file": matter.get("MatterFile", ""),
+                "doc_type": doc_type,
+                "title": matter.get("MatterTitle", "").strip(),
+                "text": text,
+                "attachment_url": att_url,
+                "body": matter.get("MatterBodyName", ""),
+                "status": matter.get("MatterStatusName", ""),
+                "year": year,
+            })
+
+        log.info(f"{tag}   {len(type_new)} new {doc_type}s")
+        new_rows.extend(type_new)
+
+    if not new_rows:
+        log.info(f"{tag} No new entries. Up to date.")
+        return 0
+
+    new_df = pd.DataFrame(new_rows)
+    log.info(f"{tag} Found {len(new_df)} new entries")
+
+    if dry_run:
+        for _, r in new_df.iterrows():
+            log.info(f"  {r['date']} | {r['matter_file']} | {r['title'][:60]}")
+        return 0
+
+    updated = pd.concat([new_df, existing_df], ignore_index=True)
+    updated = updated.drop_duplicates(subset=["matter_id"], keep="first")
+    updated = updated.sort_values("date", ascending=False).reset_index(drop=True)
+
+    push_hf_dataset(updated, SDCO_REPO, SDCO_CACHE, log)
+    log.info(f"{tag} Done. {len(updated)} total rows (+{len(new_df)} new)")
+    return 0
+
+
+# ===========================================================================
 # Code Publishing cities (Clovis, Newport Beach)
 # ===========================================================================
 
@@ -1682,13 +2177,14 @@ def update_codepub_city(city_key: str, log: logging.Logger, dry_run: bool = Fals
 # Main
 # ===========================================================================
 
-ALL_CITIES = ["sd", "sf", "sal", "oak", "lb", "fre", "ber", "bak", "la", "clovis", "nb", "fed", "eo", "speeches", "ts"]
+ALL_CITIES = ["sd", "sf", "sal", "oak", "lb", "fre", "ber", "bak", "la", "clovis", "nb", "sdco", "fed", "eo", "speeches", "ts"]
 
 
 def main():
     parser = argparse.ArgumentParser(description="Weekly dataset updater for all cities")
     parser.add_argument("--dry-run", action="store_true", help="Scrape but don't push")
     parser.add_argument("--city", choices=ALL_CITIES + ["all"], default="all", help="Which city to update")
+    parser.add_argument("--exclude", nargs="+", choices=ALL_CITIES, default=[], help="Sources to exclude (e.g. --exclude ts)")
     args = parser.parse_args()
 
     log = setup_logging()
@@ -1698,6 +2194,7 @@ def main():
     results = {}
 
     cities = ALL_CITIES if args.city == "all" else [args.city]
+    cities = [c for c in cities if c not in args.exclude]
 
     for city in cities:
         if city == "sd":
@@ -1712,6 +2209,8 @@ def main():
             results["Bakersfield"] = update_bakersfield(log, dry_run=args.dry_run)
         elif city == "la":
             results["Los Angeles"] = update_la(log, dry_run=args.dry_run)
+        elif city == "sdco":
+            results["SD County"] = update_sd_county(log, dry_run=args.dry_run)
         elif city in CODEPUB_CITIES:
             cp_cfg = CODEPUB_CITIES[city]
             results[cp_cfg["name"]] = update_codepub_city(city, log, dry_run=args.dry_run)
@@ -1734,7 +2233,104 @@ def main():
         log.info(f"  {city}: {status}")
 
     log.info("All updates complete.")
+
+    # =====================================================================
+    # Post-update: classify any new unclassified SD/SF ordinances
+    # =====================================================================
+    if not args.dry_run:
+        _classify_new_ordinances(log)
+
     sys.exit(max(results.values()) if results else 0)
+
+
+CLASSIFY_CATEGORIES = [
+    "Community Plan Updates (e.g., comprehensive plans, neighborhood plans)",
+    "Contract Amendments (e.g., modifications, revisions)",
+    "Environmental Compliance (e.g., stormwater regulations, habitat protections)",
+    "Infrastructure Projects (e.g., road improvements, water systems)",
+    "Public Safety Communications (e.g., emergency response systems, communication networks)",
+    "Construction Management Services (e.g., project oversight, coordination)",
+    "Rezoning (e.g., residential to commercial, density adjustments)",
+    "Historical Preservation (e.g., landmark designation, restoration projects)",
+    "Health and Safety Applications (e.g., permits, inspections)",
+    "Public Art Projects (e.g., murals, sculptures)",
+    "Parking Management Services (e.g., lot management, enforcement)",
+    "Housing Development (e.g., affordable housing, new construction)",
+]
+
+
+def _classify_new_ordinances(log: logging.Logger):
+    """Classify any new unclassified ordinances in SD and SF datasets."""
+    hf_key = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HF_API_KEY") or os.getenv("HUGGINGFACE_TOKEN") or os.getenv("CATLLM_HUGGINGFACE_TOKEN")
+    if not hf_key:
+        log.info("[Classify] No HuggingFace API key found, skipping classification.")
+        return
+
+    import cat_pol as pol
+
+    for city, repo, cache, doc_filter in [
+        ("SD", SD_REPO, SD_CACHE, lambda df: (df["doc_type"] == "ordinance") & (df["text"].str.len() > 0)),
+        ("SF", SF_REPO, SF_CACHE, lambda df: df["text"].str.len() > 0),
+        ("SAL", SAL_REPO, SAL_CACHE, lambda df: (df["doc_type"] == "ordinance") & (df["text"].str.len() > 0)),
+    ]:
+        tag = f"[Classify-{city}]"
+        try:
+            existing_df = load_hf_dataset(repo, cache, log)
+            if existing_df.empty:
+                continue
+
+            # Check if classification columns exist
+            if "classification_status" not in existing_df.columns:
+                log.info(f"{tag} No classification columns yet, skipping.")
+                continue
+
+            # Find unclassified ordinances with text
+            mask = doc_filter(existing_df) & (
+                existing_df["classification_status"].isna() |
+                (existing_df["classification_status"] == "")
+            )
+            unclassified = existing_df[mask]
+
+            if len(unclassified) == 0:
+                log.info(f"{tag} All ordinances classified. Up to date.")
+                continue
+
+            log.info(f"{tag} Found {len(unclassified)} unclassified ordinances.")
+
+            # Classify with Qwen3-VL-235B via HuggingFace (novita router)
+            results = pol.classify(
+                input_data=unclassified["text"].tolist(),
+                categories=CLASSIFY_CATEGORIES,
+                document_context=f"{city} city ordinances",
+                api_key=hf_key,
+                user_model="qwen/qwen2.5-vl-72b-instruct:novita",
+                model_source="huggingface",
+                add_other=True,
+                check_verbosity=False,
+            )
+
+            if results is None or results.empty:
+                log.warning(f"{tag} Classification returned no results.")
+                continue
+
+            # Merge back
+            cat_cols = [c for c in results.columns if c.startswith("category_")]
+            for i, (orig_idx, _) in enumerate(unclassified.iterrows()):
+                if i >= len(results):
+                    break
+                for col in cat_cols:
+                    if col in results.columns:
+                        existing_df.at[orig_idx, col] = results.iloc[i][col]
+                existing_df.at[orig_idx, "classification_status"] = results.iloc[i]["processing_status"]
+
+            classified = (results["processing_status"] == "success").sum()
+            log.info(f"{tag} Classified {classified}/{len(unclassified)} new ordinances.")
+
+            push_hf_dataset(existing_df, repo, cache, log)
+            log.info(f"{tag} Pushed updated dataset.")
+
+        except Exception as e:
+            log.error(f"{tag} Classification failed: {e}")
 
 
 if __name__ == "__main__":

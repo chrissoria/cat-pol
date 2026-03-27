@@ -17,3 +17,4 @@ scripts/logs/
 scripts/.last_scrape
 scripts/.dataset_cache.parquet
 scripts/.*_cache.parquet
+blog/

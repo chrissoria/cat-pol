@@ -5,6 +5,30 @@ All notable changes to cat-pol will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-27
+
+### Added
+- **San Diego County source** (`county_san_diego`): New county-level data source with ordinances and resolutions from `chrissoria/sd-county-ordinances`.
+- **URL support in `summarize()`**: Pass image or document URLs directly — they are automatically downloaded, processed, and cleaned up. Works with `input_mode="visual"` for images.
+- **California state bills scraper** (`update_california_bills.py`, `build_california_bills.py`): New data pipeline for California legislative bills.
+- **SD County scraper** (`build_sdcounty_dataset.py`): One-time build script for San Diego County ordinances.
+- **Ordinance classifier script** (`classify_all_ordinances.py`): Batch classification of ordinances across all city datasets.
+- **Truth Social image summarizer** (`summarize_ts_images.py`): Standalone script for backfilling image alt-text on Truth Social posts.
+- **Daily Truth Social launchd job**: Truth Social updates now run daily at 9 AM (separate from the weekly job for other sources).
+- **California bills launchd job**: Weekly update on Sundays at 9:30 AM.
+- **`--exclude` flag** on `update_datasets.py`: Skip specific sources (e.g., `--exclude ts`).
+
+### Changed
+- **Truth Social image model**: Switched from `qwen3-vl-235b-a22b-instruct:novita` to `qwen2.5-vl-72b-instruct:novita` — the 235B model was returning persistent 400 errors via the Novita router.
+- **Truth Social ordinance classification model**: Same model swap as above.
+- **Image/classification backfill scoped to post-election posts** (>= 2024-11-05) to avoid expensive backfills of the full 32k+ archive.
+- **launchd installer** (`install_launchd.sh`): Now installs three jobs (weekly all-sources, daily Truth Social, weekly CA bills) instead of one.
+
+### Fixed
+- **datetime type mismatch** in stock ticker merges that caused all ticker data to fail on March 25-26 runs.
+
+---
+
 ## [1.0.0] - 2026-03-22
 
 ### Notes
@@ -73,5 +97,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.1.0]: https://github.com/chrissoria/cat-pol/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/chrissoria/cat-pol/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/chrissoria/cat-pol/releases/tag/v0.1.0

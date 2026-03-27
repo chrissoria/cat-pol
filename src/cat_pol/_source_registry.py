@@ -105,6 +105,16 @@ SOURCES = {
         "jurisdiction": "Salinas, CA",
         "level": "city",
     },
+    # ---- California counties ----
+    "county_san_diego": {
+        "repo": "chrissoria/sd-county-ordinances",
+        "text_col": "text",
+        "date_col": "date",
+        "doc_types": ["ordinance", "resolution"],
+        "doc_type_col": "doc_type",
+        "jurisdiction": "San Diego County, CA",
+        "level": "county",
+    },
     # ---- California cities (Republican-leaning) ----
     "city_bakersfield": {
         "repo": "chrissoria/bakersfield-ordinances",

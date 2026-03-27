@@ -2,9 +2,59 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import os
+import tempfile
+
+import requests
 import cat_stack
 
 from ._source_registry import fetch_source, SOURCES
+
+
+def _is_url(s: str) -> bool:
+    """Check if a string is a URL."""
+    return isinstance(s, str) and s.startswith(("http://", "https://"))
+
+
+def _guess_extension(url: str, content_type: str = "") -> str:
+    """Guess file extension from URL path or Content-Type header."""
+    # Try URL path first
+    path = url.split("?")[0].split("#")[0]
+    _, ext = os.path.splitext(path)
+    if ext:
+        return ext.lower()
+
+    # Fall back to Content-Type
+    ct = content_type.lower()
+    _CT_MAP = {
+        "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+        "image/webp": ".webp", "image/svg+xml": ".svg", "image/tiff": ".tiff",
+        "image/bmp": ".bmp", "application/pdf": ".pdf",
+        "text/html": ".html", "text/plain": ".txt",
+    }
+    for mime, ext in _CT_MAP.items():
+        if mime in ct:
+            return ext
+    return ""
+
+
+def _download_urls(urls: list[str]) -> tuple[str, list[str]]:
+    """Download URLs to a temp directory. Returns (temp_dir, file_paths)."""
+    tmp_dir = tempfile.mkdtemp(prefix="catpol_dl_")
+    paths = []
+    for i, url in enumerate(urls):
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            ext = _guess_extension(url, resp.headers.get("Content-Type", ""))
+            dest = os.path.join(tmp_dir, f"file_{i:04d}{ext}")
+            with open(dest, "wb") as f:
+                f.write(resp.content)
+            paths.append(dest)
+        except Exception as e:
+            print(f"[cat-pol] Failed to download {url}: {e}")
+    return tmp_dir, paths
+
 
 # Policy-specific tone presets
 _TONES = {
@@ -42,8 +92,11 @@ def summarize(
 
     Parameters
     ----------
-    input_data : list[str], str, or PDF directory, optional
-        Policy document text or documents to summarize.
+    input_data : list[str], str, PDF directory, or URLs, optional
+        Policy document text, file paths, or URLs to summarize.
+        URLs (http/https) are automatically downloaded and passed to
+        the LLM. Use ``input_mode="visual"`` for image URLs or
+        ``input_mode="text"`` for text extraction from images.
         If not provided, `source` must be set.
     source : str, optional
         Pull data from a registered source. Use cat_pol.list_sources() for options.
@@ -68,6 +121,7 @@ def summarize(
             - None: Neutral/standard tone (no tone instruction added).
     **kwargs
         All other arguments are passed through to cat_stack.summarize().
+        Notable: input_mode ("visual" or "text"), input_type, user_model, api_key.
 
     Returns
     -------
@@ -79,8 +133,9 @@ def summarize(
     >>> # Legal-precision bullet points
     >>> pol.summarize(source="city_san_diego", n=5, format="bullets", tone="legal", api_key="sk-...")
     >>>
-    >>> # Plain-language full report
-    >>> pol.summarize(source="federal_laws", n=3, format="report", tone="eli5", api_key="sk-...")
+    >>> # Summarize images from URLs
+    >>> pol.summarize(["https://example.com/img1.jpg", "https://example.com/img2.jpg"],
+    ...              format="bullets", tone=None, api_key="sk-...")
     """
     if source is not None:
         source_df = fetch_source(source=source, n=n, since=since, until=until, doc_type=doc_type)
@@ -99,6 +154,23 @@ def summarize(
     elif input_data is None:
         raise ValueError("Either input_data or source must be provided.")
 
+    # Detect and download URLs
+    _tmp_dir = None
+    if isinstance(input_data, list) and input_data and _is_url(input_data[0]):
+        urls = [u for u in input_data if _is_url(u)]
+        print(f"[cat-pol] Downloading {len(urls)} files...")
+        _tmp_dir, file_paths = _download_urls(urls)
+        if not file_paths:
+            raise ValueError("Failed to download any files from the provided URLs.")
+        print(f"[cat-pol] Downloaded {len(file_paths)} files")
+        input_data = file_paths
+    elif isinstance(input_data, str) and _is_url(input_data):
+        print("[cat-pol] Downloading 1 file...")
+        _tmp_dir, file_paths = _download_urls([input_data])
+        if not file_paths:
+            raise ValueError("Failed to download the file from the provided URL.")
+        input_data = file_paths[0]
+
     # Apply tone as additional instructions
     if tone is not None:
         tone_lower = tone.lower()
@@ -113,4 +185,9 @@ def summarize(
         else:
             kwargs["instructions"] = tone_instruction
 
-    return cat_stack.summarize(input_data, format=format, **kwargs)
+    try:
+        return cat_stack.summarize(input_data, format=format, **kwargs)
+    finally:
+        if _tmp_dir is not None:
+            import shutil
+            shutil.rmtree(_tmp_dir, ignore_errors=True)

@@ -7,6 +7,7 @@ from .san_francisco import fetch_sf_ordinances
 from .salinas import fetch_salinas_ordinances
 from .legistar import fetch_oakland_ordinances, fetch_long_beach_ordinances, fetch_fresno_ordinances
 from .berkeley import fetch_berkeley_ordinances
+from .sd_county import fetch_sd_county_ordinances
 from .federal import fetch_federal_laws
 from .los_angeles import fetch_la_ordinances
 from .codepublishing import fetch_clovis_code, fetch_newport_beach_code
@@ -21,6 +22,7 @@ __all__ = [
     "fetch_fresno_ordinances",
     "fetch_berkeley_ordinances",
     "fetch_la_ordinances",
+    "fetch_sd_county_ordinances",
     "fetch_clovis_code",
     "fetch_newport_beach_code",
     "fetch_federal_laws",
