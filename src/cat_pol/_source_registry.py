@@ -171,6 +171,24 @@ SOURCES = {
         "jurisdiction": "United States",
         "level": "federal",
     },
+    "federal_bills_active": {
+        "repo": "chrissoria/federal-bills-active",
+        "text_col": "text",
+        "date_col": "date_last_action",
+        "doc_types": ["bill", "joint_resolution", "concurrent_resolution", "resolution"],
+        "doc_type_col": "doc_type",
+        "jurisdiction": "United States",
+        "level": "federal",
+    },
+    "federal_votes": {
+        "repo": "chrissoria/federal-votes",
+        "text_col": "legislator_full_name",  # no text col — vote records
+        "date_col": "date_of_vote",
+        "doc_types": ["roll_call_vote"],
+        "doc_type_col": None,
+        "jurisdiction": "United States",
+        "level": "federal",
+    },
     # ---- Social media ----
     "social_trump_truth": {
         "repo": "chrissoria/trump-truth-social",

@@ -5,6 +5,30 @@ All notable changes to cat-pol will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-30
+
+### Added
+- **Federal bills dataset** (`federal_bills_active`): New source tracking 2,531 active bills in the 119th Congress with full text, status, sponsors, subjects, and vote breakdowns. Pushed to `chrissoria/federal-bills-active` on HuggingFace.
+- **Federal votes dataset** (`federal_votes`): 56,569 individual roll call votes (alter-level) linked to bills. Pushed to `chrissoria/federal-votes`. Includes party, state, vote (Yea/Nay), chamber, and roll call metadata.
+- **R/D vote ratios on bills**: `republican_yeas`, `democrat_yeas`, `republican_nays`, `democrat_nays`, `republican_support_pct`, `democrat_support_pct`, `is_bipartisan` columns.
+- **Three summary types** on the first 500 bills: `summary_bullets` (bullet-point), `summary_threads` (Threads-ready <400 chars), `summary_report` (full-page report). All generated with Qwen3-VL-235B.
+- **`threads_post` column**: Ready-to-post Threads content with summary + congress.gov URL.
+- **`format="threads"` in cat-stack/cat-pol**: New summarize format for social media posts under 400 characters with headline + detail structure.
+- **Daily federal bills pipeline** (`build_federal_bills.py`): Auto-fetches new/updated bills from Congress.gov API, generates Threads and bullet summaries, pushes to HuggingFace. Runs daily at 9:15 AM.
+- **Federal votes scraper** (`build_federal_votes.py`): Parses House clerk and Senate XML roll call records for individual legislator votes.
+- **Codebook README** for bills and votes datasets with full column descriptions, value distributions, and join examples.
+
+### Changed
+- **Consolidated launchd jobs**: Merged from 4 to 2 jobs — daily (Truth Social + federal bills) and weekly (all other sources + CA bills).
+- **Descriptive column names** on federal-bills-active: `date_last_action`, `date_introduced`, `sponsor_full_name`, `republican_yeas`, etc. (previously `date`, `sponsor_name`, `yeas_R`).
+- **Expanded vote scraper filter**: Now checks all bills for roll call votes (not just passed ones), catching procedural votes on in-progress bills.
+
+### Fixed
+- **Truth Social classification**: Fixed `safety=True` requiring `filename` parameter (broke classification for 3 days).
+- **SD/SF/Salinas classification**: Fixed chicken-and-egg issue where `classification_status` column was never initialized, preventing classification from ever running.
+
+---
+
 ## [1.1.0] - 2026-03-27
 
 ### Added
