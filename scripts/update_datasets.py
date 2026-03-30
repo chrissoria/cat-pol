@@ -2281,10 +2281,10 @@ def _classify_new_ordinances(log: logging.Logger):
             if existing_df.empty:
                 continue
 
-            # Check if classification columns exist
+            # Initialize classification columns if they don't exist yet
             if "classification_status" not in existing_df.columns:
-                log.info(f"{tag} No classification columns yet, skipping.")
-                continue
+                log.info(f"{tag} Initializing classification columns (first run).")
+                existing_df["classification_status"] = pd.NA
 
             # Find unclassified ordinances with text
             mask = doc_filter(existing_df) & (
