@@ -110,7 +110,7 @@ def summarize(
         Maximum number of source rows to summarize.
     format : str, optional
         Output structure. Default "paragraph".
-        Options: "paragraph", "bullets", "one-liner", "structured", "report"
+        Options: "paragraph", "bullets", "one-liner", "structured", "report", "threads"
     tone : str, optional
         Writing style for the summary. Can be combined with any format.
         Default "eli5" (plain language).
