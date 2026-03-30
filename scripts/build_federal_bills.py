@@ -401,8 +401,36 @@ def main():
                 log.warning(f"Threads summarization failed: {e}")
         else:
             log.info("All bills have Threads summaries. Up to date.")
+
+        # Bullet-point summaries
+        if "summary_bullets" not in combined.columns:
+            combined["summary_bullets"] = None
+        needs_bullets = combined[combined["summary_bullets"].isna() & (combined["text"].str.len() > 50)]
+        if len(needs_bullets) > 0:
+            log.info(f"Generating bullet summaries for {len(needs_bullets)} bills...")
+            try:
+                import cat_pol
+                result_b = cat_pol.summarize(
+                    input_data=needs_bullets["text"].tolist(),
+                    format="bullets",
+                    tone="eli5",
+                    description="U.S. federal bills in the 119th Congress",
+                    api_key=hf_key,
+                    user_model="qwen/qwen3-vl-235b-a22b-instruct:novita",
+                    model_source="huggingface",
+                    creativity=0,
+                )
+                for i, (orig_idx, _) in enumerate(needs_bullets.iterrows()):
+                    if i < len(result_b) and result_b.iloc[i].get("processing_status") == "success":
+                        combined.at[orig_idx, "summary_bullets"] = result_b.iloc[i]["summary"]
+                summarized_b = (result_b["processing_status"] == "success").sum()
+                log.info(f"Generated {summarized_b}/{len(needs_bullets)} bullet summaries")
+            except Exception as e:
+                log.warning(f"Bullet summarization failed: {e}")
+        else:
+            log.info("All bills have bullet summaries. Up to date.")
     elif not hf_key:
-        log.info("No HuggingFace key — skipping Threads summaries.")
+        log.info("No HuggingFace key — skipping summaries.")
 
     save_cache(combined)
     log.info(f"Cached {len(combined)} total bills")
