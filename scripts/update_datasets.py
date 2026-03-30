@@ -1757,6 +1757,8 @@ def update_trump_truths(log: logging.Logger, dry_run: bool = False) -> int:
                         add_other=False,
                         check_verbosity=False,
                         safety=True,
+                        filename="truthsocial_classify_checkpoint",
+                        save_directory=str(CHECKPOINT_DIR / "truthsocial"),
                         thinking_budget=0,
                     )
                     # Map consensus columns back
