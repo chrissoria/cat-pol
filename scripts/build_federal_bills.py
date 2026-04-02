@@ -380,7 +380,13 @@ def main():
     if hf_key and not args.dry_run:
         if "summary_threads" not in combined.columns:
             combined["summary_threads"] = None
+        # Only summarize recently updated bills (last 30 days) that don't have summaries yet.
+        # This avoids re-summarizing the entire backlog on recovery runs.
         needs_summary = combined[combined["summary_threads"].isna() & (combined["text"].str.len() > 50)]
+        if "date_updated" in combined.columns and len(needs_summary) > 500:
+            cutoff = (pd.Timestamp.now() - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+            needs_summary = needs_summary[needs_summary["date_updated"] >= cutoff]
+            log.info(f"Capping to {len(needs_summary)} bills updated in last 30 days (of {combined['summary_threads'].isna().sum()} total missing)")
         if len(needs_summary) > 0:
             log.info(f"Generating Threads summaries for {len(needs_summary)} bills...")
             try:
@@ -409,6 +415,10 @@ def main():
         if "summary_bullets" not in combined.columns:
             combined["summary_bullets"] = None
         needs_bullets = combined[combined["summary_bullets"].isna() & (combined["text"].str.len() > 50)]
+        if "date_updated" in combined.columns and len(needs_bullets) > 500:
+            cutoff = (pd.Timestamp.now() - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+            needs_bullets = needs_bullets[needs_bullets["date_updated"] >= cutoff]
+            log.info(f"Capping to {len(needs_bullets)} bills updated in last 30 days (of {combined['summary_bullets'].isna().sum()} total missing)")
         if len(needs_bullets) > 0:
             log.info(f"Generating bullet summaries for {len(needs_bullets)} bills...")
             try:
