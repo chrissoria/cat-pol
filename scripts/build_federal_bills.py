@@ -302,7 +302,7 @@ def main():
     # Filter to bills needing detail fetch
     if args.incremental and not existing.empty:
         # Only fetch bills updated since our last run
-        last_update = existing["update_date"].max() if "update_date" in existing.columns else ""
+        last_update = existing["date_updated"].max() if "date_updated" in existing.columns else ""
         bills_to_fetch = [
             b for b in all_bills
             if b.get("updateDate", "") > last_update
@@ -362,7 +362,7 @@ def main():
     else:
         combined = new_df
 
-    combined = combined.sort_values("last_action_date", ascending=False).reset_index(drop=True)
+    combined = combined.sort_values("date_last_action", ascending=False).reset_index(drop=True)
 
     # Status summary
     if "status" in combined.columns:
