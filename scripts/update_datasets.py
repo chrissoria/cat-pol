@@ -1750,9 +1750,7 @@ def update_trump_truths(log: logging.Logger, dry_run: bool = False) -> int:
                         models=[
                             ("meta-llama/llama-4-maverick-17b-128e-instruct-fp8:novita", "huggingface", hf_key, {"creativity": 0}),
                             ("qwen/qwen3-32b-fp8:novita", "huggingface", hf_key, {"creativity": 0}),
-                            ("claude-3-haiku-20240307", "anthropic", anthropic_key, {"creativity": 0}),
-                            ("gpt-4o-mini", "openai", openai_key, {"creativity": 0}),
-                            ("gemini-2.0-flash", "google", google_key, {"creativity": 0}),
+                            ("deepseek/deepseek-v3.2:novita", "huggingface", hf_key, {"creativity": 0}),
                         ],
                         add_other=False,
                         check_verbosity=False,
@@ -1778,10 +1776,13 @@ def update_trump_truths(log: logging.Logger, dry_run: bool = False) -> int:
     except Exception as e:
         log.warning(f"{tag} Could not classify posts: {e}")
 
-    # Reorder columns: date/time first, then content, then metadata
+    # Reorder columns: date/time first, then content, then classifications, then market/GDELT
+    cat_cols = sorted([c for c in updated.columns if c.startswith("cat_")])
     col_order = [
         "date", "time", "day_of_week", "datetime",
-        "text", "content_html", "url", "post_id",
+        "text", "content_html", "url",
+    ] + cat_cols + [
+        "post_id",
         "is_president", "is_president_elect",
         "replies_count", "reblogs_count", "favourites_count",
         "media_urls", "links", "has_media", "image_alt_text",
@@ -2238,8 +2239,10 @@ def main():
 
     # =====================================================================
     # Post-update: classify any new unclassified SD/SF ordinances
+    # (only on weekly Sunday runs, not daily TS-only runs)
     # =====================================================================
-    if not args.dry_run:
+    classify_cities = {"sd", "sf", "sal"}
+    if not args.dry_run and classify_cities & set(cities):
         _classify_new_ordinances(log)
 
     sys.exit(max(results.values()) if results else 0)
