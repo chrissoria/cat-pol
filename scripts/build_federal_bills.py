@@ -362,6 +362,9 @@ def main():
     else:
         combined = new_df
 
+    # Normalize column name: API may use either variant
+    if "last_action_date" in combined.columns and "date_last_action" not in combined.columns:
+        combined = combined.rename(columns={"last_action_date": "date_last_action"})
     combined = combined.sort_values("date_last_action", ascending=False).reset_index(drop=True)
 
     # Status summary
