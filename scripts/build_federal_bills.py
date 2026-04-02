@@ -391,7 +391,7 @@ def main():
                     tone="eli5",
                     description="U.S. federal bills",
                     api_key=hf_key,
-                    user_model="qwen/qwen3-vl-235b-a22b-instruct:novita",
+                    user_model="Qwen/Qwen3-VL-235B-A22B-Instruct:novita",
                     model_source="huggingface",
                     creativity=0,
                 )
@@ -419,7 +419,7 @@ def main():
                     tone="eli5",
                     description="U.S. federal bills in the 119th Congress",
                     api_key=hf_key,
-                    user_model="qwen/qwen3-vl-235b-a22b-instruct:novita",
+                    user_model="Qwen/Qwen3-VL-235B-A22B-Instruct:novita",
                     model_source="huggingface",
                     creativity=0,
                 )
