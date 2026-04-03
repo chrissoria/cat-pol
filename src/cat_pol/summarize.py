@@ -56,6 +56,36 @@ def _download_urls(urls: list[str]) -> tuple[str, list[str]]:
     return tmp_dir, paths
 
 
+# Structured bill analysis format
+_BILL_ANALYSIS_FIELDS = [
+    "policy_domain",
+    "what_it_does",
+    "who_benefits",
+    "who_bears_cost",
+    "dollar_amounts",
+    "framing_gap",
+]
+
+_BILL_ANALYSIS_PROMPT = (
+    "Do NOT write a prose summary. Instead, extract structured policy data and respond "
+    "with ONLY the following JSON (no markdown, no extra text):\n\n"
+    '{"summary": "{\\\"policy_domain\\\": \\\"FILL\\\", '
+    '\\\"what_it_does\\\": \\\"FILL\\\", '
+    '\\\"who_benefits\\\": \\\"FILL\\\", '
+    '\\\"who_bears_cost\\\": \\\"FILL\\\", '
+    '\\\"dollar_amounts\\\": null, '
+    '\\\"framing_gap\\\": null}"}\n\n'
+    "Replace each FILL with a value drawn strictly from the document text:\n"
+    "  policy_domain — primary policy area (e.g. Healthcare, Defense, Tax, Immigration)\n"
+    "  what_it_does  — one sentence: the concrete action this bill takes\n"
+    "  who_benefits  — who gains from this bill\n"
+    "  who_bears_cost — who pays, financially or regulatorily\n"
+    "  dollar_amounts — explicit dollar figures or appropriations (null if none)\n"
+    "  framing_gap    — gap between stated title/purpose and actual effect (null if none)\n"
+    "Do not editorialize."
+)
+
+
 # Policy-specific tone presets
 _TONES = {
     "eli5": (
@@ -110,7 +140,9 @@ def summarize(
         Maximum number of source rows to summarize.
     format : str, optional
         Output structure. Default "paragraph".
-        Options: "paragraph", "bullets", "one-liner", "structured", "report", "threads"
+        Options: "paragraph", "bullets", "one-liner", "structured", "report", "threads",
+        "bill_analysis" (returns a DataFrame with 6 named columns: policy_domain,
+        what_it_does, who_benefits, who_bears_cost, dollar_amounts, framing_gap).
     tone : str, optional
         Writing style for the summary. Can be combined with any format.
         Default "eli5" (plain language).
@@ -171,6 +203,19 @@ def summarize(
             raise ValueError("Failed to download the file from the provided URL.")
         input_data = file_paths[0]
 
+    # Intercept bill_analysis format before passing to cat-stack
+    _bill_analysis_mode = isinstance(format, str) and format.lower() == "bill_analysis"
+    if _bill_analysis_mode:
+        # Use "raw" format so cat-stack adds NO preset instruction — our JSON schema runs solo
+        format = "raw"
+        tone = None   # JSON extraction conflicts with eli5/legal prose framing
+        existing = kwargs.get("instructions", "")
+        kwargs["instructions"] = (
+            _BILL_ANALYSIS_PROMPT + ("\n\n" + existing if existing else "")
+        )
+        kwargs.pop("description", None)   # description would frame this as "context", not instruction
+        kwargs.setdefault("creativity", 0)
+
     # Apply tone as additional instructions
     if tone is not None:
         tone_lower = tone.lower()
@@ -186,8 +231,125 @@ def summarize(
             kwargs["instructions"] = tone_instruction
 
     try:
-        return cat_stack.summarize(input_data, format=format, **kwargs)
+        result = cat_stack.summarize(input_data, format=format, **kwargs)
     finally:
         if _tmp_dir is not None:
             import shutil
             shutil.rmtree(_tmp_dir, ignore_errors=True)
+
+    if _bill_analysis_mode and result is not None:
+        import json
+        import re
+
+        def _find_json_objects(s):
+            """Scan string for top-level JSON objects using bracket matching."""
+            objects = []
+            i = 0
+            while i < len(s):
+                if s[i] != '{':
+                    i += 1
+                    continue
+                depth, in_str, escape, start = 0, False, False, i
+                for j in range(i, len(s)):
+                    c = s[j]
+                    if escape:
+                        escape = False
+                        continue
+                    if c == '\\' and in_str:
+                        escape = True
+                        continue
+                    if c == '"' and not escape:
+                        in_str = not in_str
+                        continue
+                    if not in_str:
+                        if c == '{':
+                            depth += 1
+                        elif c == '}':
+                            depth -= 1
+                            if depth == 0:
+                                objects.append(s[start:j + 1])
+                                i = j + 1
+                                break
+                else:
+                    break
+            return objects
+
+        def _parse_bill_json(raw):
+            if not isinstance(raw, str):
+                return {f: None for f in _BILL_ANALYSIS_FIELDS}
+            # Strip markdown code fences if present
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.DOTALL)
+            # Try direct parse first
+            try:
+                parsed = json.loads(cleaned)
+                if (
+                    isinstance(parsed, dict)
+                    and "summary" in parsed
+                    and isinstance(parsed["summary"], str)
+                ):
+                    nested = json.loads(parsed["summary"])
+                    if isinstance(nested, dict) and any(f in nested for f in _BILL_ANALYSIS_FIELDS):
+                        return {f: nested.get(f) for f in _BILL_ANALYSIS_FIELDS}
+                if isinstance(parsed, dict) and any(f in parsed for f in _BILL_ANALYSIS_FIELDS):
+                    return {f: parsed.get(f) for f in _BILL_ANALYSIS_FIELDS}
+            except (json.JSONDecodeError, ValueError):
+                pass
+            # Scan for embedded JSON objects containing our keys (cat-stack style)
+            for candidate in _find_json_objects(cleaned):
+                try:
+                    parsed = json.loads(candidate)
+                    if (
+                        isinstance(parsed, dict)
+                        and "summary" in parsed
+                        and isinstance(parsed["summary"], str)
+                    ):
+                        nested = json.loads(parsed["summary"])
+                        if isinstance(nested, dict) and any(f in nested for f in _BILL_ANALYSIS_FIELDS):
+                            return {f: nested.get(f) for f in _BILL_ANALYSIS_FIELDS}
+                    if isinstance(parsed, dict) and any(f in parsed for f in _BILL_ANALYSIS_FIELDS):
+                        return {f: parsed.get(f) for f in _BILL_ANALYSIS_FIELDS}
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+            # Last resort: salvage values from malformed near-JSON output.
+            recovered = {}
+            for i, field in enumerate(_BILL_ANALYSIS_FIELDS):
+                remaining = _BILL_ANALYSIS_FIELDS[i + 1 :]
+                if remaining:
+                    next_keys = "|".join(re.escape(name) for name in remaining)
+                    boundary = rf',\s*"(?:{next_keys})"\s*:|\s*\}}|$'
+                else:
+                    boundary = r"\s*\}|$"
+
+                pattern = rf'"{re.escape(field)}"\s*:\s*(.*?)(?={boundary})'
+                match = re.search(pattern, cleaned, flags=re.DOTALL)
+                if not match:
+                    recovered[field] = None
+                    continue
+
+                value = match.group(1).strip().rstrip(",").strip()
+                if value in {"null", "None"}:
+                    recovered[field] = None
+                elif len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+                    try:
+                        recovered[field] = json.loads(value)
+                    except json.JSONDecodeError:
+                        recovered[field] = value[1:-1]
+                else:
+                    recovered[field] = value
+
+            if any(v is not None for v in recovered.values()):
+                return recovered
+
+            return {f: None for f in _BILL_ANALYSIS_FIELDS}
+
+        parsed_rows = result["summary"].apply(_parse_bill_json)
+        import pandas as pd
+        expanded = pd.DataFrame(parsed_rows.tolist(), index=result.index)
+        if expanded.isna().all(axis=1).any():
+            expanded["summary_raw"] = result["summary"]
+        result = pd.concat(
+            [result.drop(columns=["summary"]), expanded], axis=1
+        )
+
+    return result

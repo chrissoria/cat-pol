@@ -5,9 +5,18 @@ All notable changes to cat-pol will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - 2026-03-30
+## [1.2.0] - 2026-04-03
 
 ### Added
+- **`format="bill_analysis"` in `summarize()`**: New structured extraction format that
+  returns a DataFrame with six named columns instead of free text: `policy_domain`,
+  `what_it_does`, `who_benefits`, `who_bears_cost`, `dollar_amounts`, `framing_gap`.
+  Tone is auto-suppressed in this mode. Requires cat-stack ≥ 1.0.13 (`format="raw"`).
+- **Data pipeline migrated to `social_media/scripts/`**: All build/update/classify
+  scripts moved to a standalone repo. The `cat-pol` package now contains only the
+  installable Python library.
+
+### Added (2026-03-30)
 - **Federal bills dataset** (`federal_bills_active`): New source tracking 2,531 active bills in the 119th Congress with full text, status, sponsors, subjects, and vote breakdowns. Pushed to `chrissoria/federal-bills-active` on HuggingFace.
 - **Federal votes dataset** (`federal_votes`): 56,569 individual roll call votes (alter-level) linked to bills. Pushed to `chrissoria/federal-votes`. Includes party, state, vote (Yea/Nay), chamber, and roll call metadata.
 - **R/D vote ratios on bills**: `republican_yeas`, `democrat_yeas`, `republican_nays`, `democrat_nays`, `republican_support_pct`, `democrat_support_pct`, `is_bipartisan` columns.

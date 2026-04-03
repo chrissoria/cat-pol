@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-cat-pol is a Python package for political text classification and analysis powered by LLMs. It wraps [cat-stack](https://github.com/chrissoria/cat-stack) with policy-specific prompt framing and provides access to 15 public political datasets on HuggingFace (no auth required).
+cat-pol is a Python package for political text classification and analysis powered by LLMs. It wraps [cat-stack](https://github.com/chrissoria/cat-stack) with policy-specific prompt framing and provides access to 18 public political datasets on HuggingFace (no auth required).
 
 ## Build & Install
 
@@ -38,22 +38,24 @@ All functions accept either `input_data=` (raw text/DataFrame) or `source=` (Hug
 - **`classify()`** — Classify documents into user-defined categories. Wraps `cat_stack.classify()` with policy framing.
 - **`extract()`** — Discover and normalize categories from documents (with deduplication). Returns dict with `top_categories`, `counts_df`, `raw_top_text`.
 - **`explore()`** — Raw category extraction without deduplication.
-- **`summarize()`** — Summarize documents with format (`paragraph`, `bullets`, `one-liner`, `structured`, `report`) and tone (`eli5`, `legal`, or None) control.
+- **`summarize()`** — Summarize documents with format and tone control. Formats: `paragraph`, `bullets`, `one-liner`, `structured`, `report`, `alt-text`, `threads`. Special format `bill_analysis` returns a DataFrame with 6 named columns (`policy_domain`, `what_it_does`, `who_benefits`, `who_bears_cost`, `dollar_amounts`, `framing_gap`) instead of free text — tone is auto-suppressed in this mode. Tones: `eli5` (default), `legal`, or `None`.
 - **`prompt_tune()`** — Optimize classification prompts via iterative user feedback.
 
 All functions pass `**kwargs` through to their cat-stack counterparts.
 
 ### Source Registry (`_source_registry.py`)
 
-Central `SOURCES` dict maps source identifiers to HuggingFace repo metadata (repo, text_col, date_col, doc_types, jurisdiction, level). Naming convention: `{level}_{jurisdiction}` (e.g., `city_san_diego`, `federal_laws`).
+Central `SOURCES` dict maps source identifiers to HuggingFace repo metadata (repo, text_col, date_col, doc_type_col, doc_types, jurisdiction, level). Naming convention: `{level}_{jurisdiction}` (e.g., `city_san_diego`, `federal_laws`).
 
 Two public functions: `list_sources(level=None)` and `fetch_source(source, ...)`.
 
-Fetching uses `datasets` library when available, falls back to HuggingFace REST API with retry logic.
+Fetching uses `datasets` library when available, falls back to HuggingFace REST API with retry/backoff logic. The Truth Social source (`social_trump`) is unique: it includes market data enrichment (18 stock/index tickers at 1-min, 5-min, and hourly resolution for each post).
 
 ### Source Modules (`src/cat_pol/sources/`)
 
 Per-source fetch functions for direct access. Each module follows the same pattern: loads via `datasets.load_dataset()`, supports `n`, `since`, `until`, optional `doc_type`, sorts by date descending, returns a pandas DataFrame.
+
+`legistar.py` contains a shared `_fetch_legistar_dataset()` base used by Oakland, Long Beach, and Fresno — when adding new Legistar-based cities, use this as the base rather than creating a standalone module.
 
 ### Adding a New Source
 
@@ -67,9 +69,11 @@ Per-source fetch functions for direct access. Each module follows the same patte
 
 ## Data Pipeline
 
-`scripts/` contains scrapers that build and maintain the 15 HuggingFace datasets:
+`scripts/` contains scrapers that build and maintain the 18 HuggingFace datasets. The directory has its own `requirements.txt` (separate from package deps):
 - `update_datasets.py` — Weekly incremental update runner (launchd, Sundays 9 AM)
 - `build_*.py` — One-time full-build scripts per source
+- `update_*.py` — Incremental updaters per source
+- `classify_all_ordinances.py`, `summarize_*.py` — Batch analysis scripts
 - Scrapers use caches (`.{source}_cache.parquet`), checkpoints (`scripts/checkpoints/`), and logs (`scripts/logs/`)
 
 ## License
