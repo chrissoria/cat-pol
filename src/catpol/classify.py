@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import cat_stack
+import catstack
 
 from ._utils import build_policy_description
 from ._source_registry import fetch_source, list_sources
@@ -55,7 +55,7 @@ def classify(
     check_verbosity : bool
         Whether to check category verbosity. Default True.
     **kwargs
-        All other arguments are passed through to cat_stack.classify().
+        All other arguments are passed through to catstack.classify().
 
     Returns
     -------
@@ -129,7 +129,7 @@ def classify(
         )
 
     desc = build_policy_description(document_context, description)
-    result = cat_stack.classify(
+    result = catstack.classify(
         input_data,
         categories,
         description=desc,

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import cat_stack
+import catstack
 
 from ._utils import build_policy_description
 from ._source_registry import fetch_source, SOURCES
@@ -22,7 +22,7 @@ def extract(
 ):
     """Discover categories from policy documents using LLMs.
 
-    Thin wrapper around cat_stack.extract() that supports pulling data
+    Thin wrapper around catstack.extract() that supports pulling data
     from a registered political data source and injects policy-document-specific
     prompt framing.
 
@@ -47,7 +47,7 @@ def extract(
     description : str
         Additional context about the document or analysis task.
     **kwargs
-        All other arguments are passed through to cat_stack.extract().
+        All other arguments are passed through to catstack.extract().
 
     Returns
     -------
@@ -68,7 +68,7 @@ def extract(
         raise ValueError("Either input_data or source must be provided.")
 
     desc = build_policy_description(document_context, description)
-    return cat_stack.extract(
+    return catstack.extract(
         input_data,
         api_key,
         survey_question=desc,

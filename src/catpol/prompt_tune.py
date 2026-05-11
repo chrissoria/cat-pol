@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-import cat_stack
+import catstack
 
 from ._utils import build_policy_description
 from ._source_registry import fetch_source, SOURCES
@@ -23,7 +23,7 @@ def prompt_tune(
 ):
     """Optimize classification prompts for policy documents using user feedback.
 
-    Thin wrapper around cat_stack.prompt_tune() that supports pulling data
+    Thin wrapper around catstack.prompt_tune() that supports pulling data
     directly from a registered political data source and injects
     policy-document-specific prompt framing.
 
@@ -52,7 +52,7 @@ def prompt_tune(
     add_other : str or bool
         Whether to add an "Other" category. Default "prompt".
     **kwargs
-        All other arguments passed through to cat_stack.prompt_tune()
+        All other arguments passed through to catstack.prompt_tune()
         (api_key, user_model, model_source, models, sample_size,
         max_iterations, multi_label, creativity, ui, optimize, etc.)
 
@@ -118,7 +118,7 @@ def prompt_tune(
 
     desc = build_policy_description(document_context, description)
 
-    return cat_stack.prompt_tune(
+    return catstack.prompt_tune(
         input_data,
         categories,
         description=desc,

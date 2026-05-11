@@ -6,7 +6,7 @@ import os
 import tempfile
 
 import requests
-import cat_stack
+import catstack
 
 from ._source_registry import fetch_source, SOURCES
 
@@ -116,7 +116,7 @@ def summarize(
 ):
     """Summarize policy documents using LLMs.
 
-    Thin wrapper around cat_stack.summarize() that supports pulling data
+    Thin wrapper around catstack.summarize() that supports pulling data
     from a registered political data source and adds a policy-specific
     tone parameter.
 
@@ -152,7 +152,7 @@ def summarize(
               section references, effective dates, enforcement mechanisms.
             - None: Neutral/standard tone (no tone instruction added).
     **kwargs
-        All other arguments are passed through to cat_stack.summarize().
+        All other arguments are passed through to catstack.summarize().
         Notable: input_mode ("visual" or "text"), input_type, user_model, api_key.
 
     Returns
@@ -231,7 +231,7 @@ def summarize(
             kwargs["instructions"] = tone_instruction
 
     try:
-        result = cat_stack.summarize(input_data, format=format, **kwargs)
+        result = catstack.summarize(input_data, format=format, **kwargs)
     finally:
         if _tmp_dir is not None:
             import shutil

@@ -23,7 +23,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
 ]
 dependencies = [
-  "cat-stack>=0.1.0",
+  "cat-stack>=1.0.19",
   "pandas",
 ]
 
@@ -38,12 +38,13 @@ Issues = "https://github.com/chrissoria/cat-pol/issues"
 Source = "https://github.com/chrissoria/cat-pol"
 
 [tool.hatch.version]
-path = "src/cat_pol/__about__.py"
+path = "src/catpol/__about__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cat_pol"]
+packages = ["src/catpol", "src/cat_pol"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/cat_pol/**/*.py",
+    "src/catpol/**/*.py",
+    "src/cat_pol/__init__.py",
 ]

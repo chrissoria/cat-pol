@@ -5,6 +5,20 @@ All notable changes to cat-pol will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-11
+
+### Changed
+- **Canonical import name normalized to `catpol`** (no separator), matching
+  the rest of the cat-* family. The previous name `cat_pol` continues to
+  work as a backward-compatible alias; both forms resolve to the same module.
+  Existing code does not need to change.
+- **Source directory** renamed from `src/cat_pol/` to `src/catpol/`. Alias
+  ships as `src/cat_pol/__init__.py`.
+- **Internal imports** of `cat_stack` rewritten to `catstack`. Now requires
+  `cat-stack>=1.0.19`.
+
+---
+
 ## [1.2.0] - 2026-04-03
 
 ### Added
