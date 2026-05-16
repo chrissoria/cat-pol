@@ -21,7 +21,7 @@ pip install "cat-pol[sources]"     # Data source loading (datasets, huggingface_
 ### Classify ordinances from a built-in source
 
 ```python
-import cat_pol as pol
+import catpol as pol
 
 results = pol.classify(
     source="city_san_diego",
