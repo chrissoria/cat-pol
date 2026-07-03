@@ -71,7 +71,7 @@ def extract(
     return catstack.extract(
         input_data,
         api_key,
-        survey_question=desc,
+        description=desc,
         domain="policy",
         **kwargs,
     )
