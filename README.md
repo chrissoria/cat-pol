@@ -14,7 +14,11 @@ With optional extras:
 pip install "cat-pol[pdf]"         # PDF document processing
 pip install "cat-pol[embeddings]"  # Embedding-based similarity scoring
 pip install "cat-pol[sources]"     # Data source loading (datasets, huggingface_hub)
+pip install "cat-pol[agent]"       # Claude-subscription backend (model_source="claude-agent")
+pip install "cat-pol[codex-agent]" # ChatGPT-subscription backend (model_source="codex-agent")
 ```
+
+The subscription backends authenticate through your Claude or ChatGPT plan instead of a metered API key — pass `model_source="claude-agent"` (or `"codex-agent"`) and leave `api_key` unset. `model_source="claude-code"` (the Claude Code CLI, if installed) needs no extra at all.
 
 ## Quick Start
 

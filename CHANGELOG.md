@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completing the two-stage discovery workflow (`explore()` ->
   `collapse_themes()`) without a second import. Its prompts are
   self-contained rather than domain-keyed, so no policy wrapping applies.
+- **`[agent]` and `[codex-agent]` extras** — install the Claude- and
+  ChatGPT-subscription backends (`pip install "cat-pol[agent]"`), mirroring
+  cat-stack's extras of the same names. The wrappers already accepted
+  `api_key=None`, so the backends work with no code change.
 
 ### Changed
 - The `cat-stack` dependency floor is raised from `>=1.6.3` to `>=2.5.0`,

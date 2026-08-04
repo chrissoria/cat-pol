@@ -31,6 +31,10 @@ dependencies = [
 pdf = ["cat-stack[pdf]"]
 embeddings = ["cat-stack[embeddings]"]
 sources = ["datasets>=2.14.0", "huggingface_hub>=0.16.0"]
+# Subscription backends: Claude (model_source="claude-agent") and ChatGPT
+# (model_source="codex-agent"). Extra names mirror cat-stack's.
+agent = ["cat-stack[agent]"]
+codex-agent = ["cat-stack[codex-agent]"]
 
 [project.urls]
 Documentation = "https://github.com/chrissoria/cat-pol#readme"
