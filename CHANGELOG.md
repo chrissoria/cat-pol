@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `api_key=None`, so the backends work with no code change.
 
 ### Changed
-- The `cat-stack` dependency floor is raised from `>=1.6.3` to `>=2.5.0`,
+- The `cat-stack` dependency floor is raised from `>=1.6.3` to `>=2.5.1`,
   required for the `collapse_themes` re-export (with `top_n`/`prune`) and
   for `extract()`'s explore -> collapse_themes consolidation engine.
 

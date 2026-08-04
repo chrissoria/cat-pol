@@ -23,7 +23,7 @@ classifiers = [
   "Programming Language :: Python :: Implementation :: CPython",
 ]
 dependencies = [
-  "cat-stack>=2.5.0",
+  "cat-stack>=2.5.1",
   "pandas",
 ]
 
