@@ -214,6 +214,7 @@ Intraday prices use the highest available resolution: 1-minute (last ~7 days), 5
 | `prompt_tune()` | Optimize classification prompts via user feedback |
 | `extract()` | Discover and normalize categories from text |
 | `explore()` | Raw category extraction (no deduplication) |
+| `collapse_themes()` | Consolidate an explore() inventory into a deduplicated taxonomy (re-export from cat-stack) |
 | `summarize()` | Summarize text, PDFs, or image URLs with format options (paragraph, bullets, one-liner, structured, report, alt-text) |
 | `list_sources()` | List available data sources |
 | `fetch_source()` | Fetch raw data from a source |
